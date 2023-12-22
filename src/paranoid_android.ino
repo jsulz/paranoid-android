@@ -41,67 +41,78 @@
 #include "OneWire.h"
 #include <Wire.h> //I2C needed for sensors
 
+// Big board settings
+// Setup the antena on the wifi
 STARTUP(WiFi.selectAntenna(ANT_EXTERNAL));
-
-int DS18S20_Pin = D4;    // DS18S20 Signal pin on digital 2
-OneWire ds(DS18S20_Pin); // on digital pin 2
-float tempsf = 0;
-
-float humidity = 0;
-float tempf = 0;
-float pascals = 0;
-float baroTemp = 0;
-float curr_wind_speed = 0;
-float curr_wind_direction = 0;
-long lastPrint = 0;
-
 // Create Instance of HTU21D or SI7021 temp and humidity sensor and MPL3115A2 barometric sensor
 Weather sensor;
 
-// Wind
+// Wind speed
 int WSPEED = D3;
-int RAIN = D2;
 long lastWindCheck = 0;
 volatile byte windClicks = 0;
 volatile long lastWindIRQ = 0;
+float curr_wind_speed = 0;
+
+// Wind direction
 const byte WDIR = A0;
-int SMOISTURE = A1;
-int SOILPOWER = D5;
-float soilVal = 0;
-byte minutes;
+float curr_wind_direction = 0;
+
+// Rain
+int RAIN = D2;
 volatile unsigned long raintime, rainlast, raininterval, rain;
 volatile float dailyrainin;
 volatile float rainHour[60];
 
-int publish_window = 12000;
+// Air Temperature
+float tempf = 0;
 
-void rainIRQ()
-// Count rain gauge bucket tips as they occur
-// Activated by the magnet and reed switch in the rain gauge, attached to input D2
+// Soil temp and moisture
+int SMOISTURE = A1;
+int SOILPOWER = D5;
+float soilVal = 0;
+int DS18S20_Pin = D4;    // DS18S20 Signal pin on digital 2
+OneWire ds(DS18S20_Pin); // on digital pin 2
+float tempsf = 0;
+
+// Humidity
+float humidity = 0;
+
+// Air pressure
+float pascals = 0;
+float baroTemp = 0;
+
+// Publish/time helpers
+int debug_publish_window = 12000;
+int prod_publish_window = 60000;
+byte minutes;
+long lastPrint = 0;
+
+//----------------Main Program Loop-------------------
+void loop()
 {
-  raintime = millis();                // grab current time
-  raininterval = raintime - rainlast; // calculate interval between this and last event
 
-  if (raininterval > 10) // ignore switch-bounce glitches less than 10mS after initial edge
+  // This math looks at the current time vs the last time a publish happened
+  if (millis() - lastPrint > debug_publish_window) // Publishes every 12000 milliseconds, or 12 seconds
   {
-    dailyrainin += 0.011;       // Each dump is 0.011" of water
-    rainHour[minutes] += 0.011; // Increase this minute's amount of rain
+    // Record when you published
+    lastPrint = millis();
 
-    rainlast = raintime; // set up for next event
+    // Use the printInfo() function to print data out to Serial
+    printInfo();
+
+    publishInfo();
   }
+  // Otherwise, get all of the weather values that we keep running averages for
+  else
+  {
+    updateWeatherValues();
+  }
+  // Add a bit of a gathering delay to help smooth out weird gusts, etc
+  delay(10);
 }
 
-void wspeedIRQ()
-// Activated by the magnet in the anemometer (2 ticks per rotation), attached to input D3
-{
-  if (millis() - lastWindIRQ > 10) // Ignore switch-bounce glitches less than 10ms (142MPH max reading) after the reed switch closes
-  {
-    lastWindIRQ = millis(); // Grab the current time
-    windClicks++;           // There is 1.492MPH for each click per second.
-  }
-}
-
-//---------------------------------------------------------------
+//--------------------Setup the sensors -----------------------
 void setup()
 {
   Serial.begin(9600); // open serial over USB at 9600 baud
@@ -145,22 +156,30 @@ void setup()
   attachInterrupt(WSPEED, wspeedIRQ, FALLING);
   interrupts();
 }
-//---------------------------------------------------------------
-void loop()
+
+void rainIRQ()
+// Count rain gauge bucket tips as they occur
+// Activated by the magnet and reed switch in the rain gauge, attached to input D2
 {
-  // Get readings from all sensors
-  getWeather();
+  raintime = millis();                // grab current time
+  raininterval = raintime - rainlast; // calculate interval between this and last event
 
-  // This math looks at the current time vs the last time a publish happened
-  if (millis() - lastPrint > publish_window) // Publishes every 12000 milliseconds, or 12 seconds
+  if (raininterval > 10) // ignore switch-bounce glitches less than 10mS after initial edge
   {
-    // Record when you published
-    lastPrint = millis();
+    dailyrainin += 0.011;       // Each dump is 0.011" of water
+    rainHour[minutes] += 0.011; // Increase this minute's amount of rain
 
-    // Use the printInfo() function to print data out to Serial
-    printInfo();
+    rainlast = raintime; // set up for next event
+  }
+}
 
-    publishInfo();
+void wspeedIRQ()
+// Activated by the magnet in the anemometer (2 ticks per rotation), attached to input D3
+{
+  if (millis() - lastWindIRQ > 10) // Ignore switch-bounce glitches less than 10ms (142MPH max reading) after the reed switch closes
+  {
+    lastWindIRQ = millis(); // Grab the current time
+    windClicks++;           // There is 1.492MPH for each click per second.
   }
 }
 
@@ -246,7 +265,7 @@ int readSoil()
 }
 
 //---------------------------------------------------------------
-void getWeather()
+void updateWeatherValues()
 {
   // Measure Relative Humidity from the HTU21D or Si7021
   humidity = sensor.getRH();
@@ -273,6 +292,15 @@ void getWeather()
 
   soilVal = readSoil();
 }
+
+void gatherAirTemp()
+{
+}
+
+void gatherHumidity()
+{
+}
+
 //---------------------------------------------------------------
 void printInfo()
 {
