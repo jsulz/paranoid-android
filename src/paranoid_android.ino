@@ -36,17 +36,25 @@
   please buy us a round!
   Distributed as-is; no warranty is given.
 *******************************************************************************/
+/**************************
+Helping libraries
+*************************/
 #include "application.h"
 #include "SparkFun_Photon_Weather_Shield_Library.h"
 #include "OneWire.h"
 #include <Wire.h> //I2C needed for sensors
 
-// Big board settings
+/**************************
+Big board settings
+*************************/
 // Setup the antena on the wifi
 STARTUP(WiFi.selectAntenna(ANT_EXTERNAL));
 // Create Instance of HTU21D or SI7021 temp and humidity sensor and MPL3115A2 barometric sensor
 Weather sensor;
 
+/**************************
+Sensor variables
+*************************/
 // Wind speed
 int WSPEED = D3;
 long lastWindCheck = 0;
@@ -65,7 +73,9 @@ volatile float dailyrainin;
 volatile float rainHour[60];
 
 // Air Temperature
-float tempf = 0;
+float tempf = 0.0;
+int airTempReads = 0;
+float airTempRunningVal = 0.0;
 
 // Soil temp and moisture
 int SMOISTURE = A1;
@@ -95,6 +105,7 @@ void loop()
   // This math looks at the current time vs the last time a publish happened
   if (millis() - lastPrint > debug_publish_window) // Publishes every 12000 milliseconds, or 12 seconds
   {
+    calculateAirTemp();
     // Record when you published
     lastPrint = millis();
 
@@ -271,7 +282,7 @@ void updateWeatherValues()
   humidity = sensor.getRH();
 
   // Measure Temperature from the HTU21D or Si7021
-  tempf = sensor.getTempF();
+  gatherAirTemp();
   // Temperature is measured every time RH is requested.
   // It is faster, therefore, to read it from previous RH
   // measurement with getTemp() instead with readTemp()
@@ -295,6 +306,15 @@ void updateWeatherValues()
 
 void gatherAirTemp()
 {
+  airTempRunningVal = sensor.getTempF() + airTempRunningVal;
+  airTempReads++;
+}
+
+void calculateAirTemp()
+{
+  tempf = airTempRunningVal / float(airTempReads);
+  airTempReads = 0;
+  airTempRunningVal = 0;
 }
 
 void gatherHumidity()
