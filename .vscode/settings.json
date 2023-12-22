@@ -1,0 +1,10 @@
+{
+    "extensions.ignoreRecommendations": true,
+    "C_Cpp.default.configurationProvider": "particle.particle-vscode-core",
+    "files.associations": {
+        "*.ino": "cpp"
+    },
+    "particle.targetDevice": "paranoid_android",
+    "particle.firmwareVersion": "2.1.0",
+    "particle.targetPlatform": "photon"
+}
