@@ -41,85 +41,128 @@
   please buy us a round!
   Distributed as-is; no warranty is given.
 *******************************************************************************/
+/**************************
+Helping libraries
+*************************/
 #include "application.h"
 #include "SparkFun_Photon_Weather_Shield_Library.h"
 #include "OneWire.h"
 #include <Wire.h> //I2C needed for sensors
 
-void rainIRQ();
-void wspeedIRQ();
-void setup();
+/**************************
+Big board settings
+*************************/
+// Setup the antena on the wifi
 void loop();
+void setup();
+void rainIRQ();
+float calculateRain();
+void wspeedIRQ();
 void publishInfo();
 float getTemp();
 int readSoil();
-void getWeather();
+void updateWeatherValues();
+void gatherAirTemp();
+void calculateAirTemp();
+void gatherHumidity();
+void calculateHumidity();
+void gatherPressure();
+void calculatePressure();
 void printInfo();
 float get_wind_speed();
-int averageAnalogRead(int pinToRead);
-int get_wind_direction();
-#line 44 "/home/jared/dev/paranoid_android/paranoid_android/src/paranoid_android.ino"
+void captureWindVane();
+float calculateWindDirection();
+float lookupRadiansFromRaw(unsigned int analogRaw);
+#line 51 "/home/jared/dev/paranoid_android/paranoid_android/src/paranoid_android.ino"
 STARTUP(WiFi.selectAntenna(ANT_EXTERNAL));
+// Create Instance of HTU21D or SI7021 temp and humidity sensor and MPL3115A2 barometric sensor
+Weather sensor;
 
+/**************************
+Sensor variables
+*************************/
+// Wind speed
+int WSPEED = D3;
+long lastWindCheck = 0;
+volatile byte windClicks = 0;
+volatile long lastWindIRQ = 0;
+float curr_wind_speed = 0;
+
+// Wind direction
+const byte WDIR = A0;
+float windDirection = 0.0;
+float windDirectionTotal = 0.0;
+int windDirectionReads = 0;
+
+// Rain
+int RAINPIN = D2;
+volatile unsigned long raintime, rainlast, raininterval;
+float rain = 0.0;
+volatile unsigned int rainReads = 0;
+volatile unsigned long rainTotal = 0.0;
+volatile unsigned long RAINCLICK = 0.011;
+
+// Air Temperature
+float tempf = 0.0;
+int airTempReads = 0;
+float airTempRunningVal = 0.0;
+
+// Soil temp and moisture
+int SMOISTURE = A1;
+int SOILPOWER = D5;
+float soilVal = 0;
 int DS18S20_Pin = D4;    // DS18S20 Signal pin on digital 2
 OneWire ds(DS18S20_Pin); // on digital pin 2
 float tempsf = 0;
 
-float humidity = 0;
-float tempf = 0;
-float pascals = 0;
-float baroTemp = 0;
-float curr_wind_speed = 0;
-float curr_wind_direction = 0;
+// Humidity
+float humidity = 0.0;
+int humidityReads = 0;
+float humidityRunningTotal = 0.0;
+
+// Air pressure
+float pascals = 0.0;
+int pascalReads = 0;
+float pascalRunningTotal = 0.0;
+
+// Publish/time helpers
+int debug_publish_window = 12000;
+int prod_publish_window = 60000;
+byte minutes;
 long lastPrint = 0;
 
-// Create Instance of HTU21D or SI7021 temp and humidity sensor and MPL3115A2 barometric sensor
-Weather sensor;
-
-// Wind
-int WSPEED = D3;
-int RAIN = D2;
-long lastWindCheck = 0;
-volatile byte windClicks = 0;
-volatile long lastWindIRQ = 0;
-const byte WDIR = A0;
-int SMOISTURE = A1;
-int SOILPOWER = D5;
-float soilVal = 0;
-byte minutes;
-volatile unsigned long raintime, rainlast, raininterval, rain;
-volatile float dailyrainin;
-volatile float rainHour[60];
-
-int publish_window = 12000;
-
-void rainIRQ()
-// Count rain gauge bucket tips as they occur
-// Activated by the magnet and reed switch in the rain gauge, attached to input D2
+//----------------Main Program Loop-------------------
+void loop()
 {
-  raintime = millis();                // grab current time
-  raininterval = raintime - rainlast; // calculate interval between this and last event
 
-  if (raininterval > 10) // ignore switch-bounce glitches less than 10mS after initial edge
+  // This math looks at the current time vs the last time a publish happened
+  if (millis() - lastPrint > debug_publish_window) // Publishes every 12000 milliseconds, or 12 seconds
   {
-    dailyrainin += 0.011;       // Each dump is 0.011" of water
-    rainHour[minutes] += 0.011; // Increase this minute's amount of rain
+    calculateAirTemp();
+    calculateHumidity();
+    calculatePressure();
+    windDirection = calculateWindDirection();
+    curr_wind_speed = get_wind_speed();
+    rain = calculateRain();
 
-    rainlast = raintime; // set up for next event
+    // Record when you published
+    lastPrint = millis();
+
+    // Use the printInfo() function to print data out to Serial
+    printInfo();
+
+    publishInfo();
   }
+  // Otherwise, get all of the weather values that we keep running averages for
+  else
+  {
+    updateWeatherValues();
+  }
+  // Add a bit of a gathering delay to help smooth out weird gusts, etc
+  delay(100);
 }
 
-void wspeedIRQ()
-// Activated by the magnet in the anemometer (2 ticks per rotation), attached to input D3
-{
-  if (millis() - lastWindIRQ > 10) // Ignore switch-bounce glitches less than 10ms (142MPH max reading) after the reed switch closes
-  {
-    lastWindIRQ = millis(); // Grab the current time
-    windClicks++;           // There is 1.492MPH for each click per second.
-  }
-}
-
-//---------------------------------------------------------------
+//--------------------Setup the sensors -----------------------
 void setup()
 {
   Serial.begin(9600); // open serial over USB at 9600 baud
@@ -141,7 +184,6 @@ void setup()
   readings. For this example, we will only be using the barometer mode. Be sure
   to only uncomment one line at a time. */
   sensor.setModeBarometer(); // Set to Barometer Mode
-  // baro.setModeAltimeter();//Set to altimeter Mode
 
   // These are additional MPL3115A2 functions that MUST be called for the sensor to work.
   sensor.setOversampleRate(7); // Set Oversample rate
@@ -158,27 +200,47 @@ void setup()
   pinMode(SOILPOWER, OUTPUT);
   digitalWrite(SOILPOWER, LOW);
 
-  pinMode(RAIN, INPUT_PULLUP);
-  attachInterrupt(RAIN, rainIRQ, FALLING);
+  pinMode(RAINPIN, INPUT_PULLUP);
+  attachInterrupt(RAINPIN, rainIRQ, FALLING);
   attachInterrupt(WSPEED, wspeedIRQ, FALLING);
   interrupts();
 }
-//---------------------------------------------------------------
-void loop()
+
+void rainIRQ()
+// Count rain gauge bucket tips as they occur
+// Activated by the magnet and reed switch in the rain gauge, attached to input D2
 {
-  // Get readings from all sensors
-  getWeather();
+  raintime = millis();                // grab current time
+  raininterval = raintime - rainlast; // calculate interval between this and last event
 
-  // This math looks at the current time vs the last time a publish happened
-  if (millis() - lastPrint > publish_window) // Publishes every 12000 milliseconds, or 12 seconds
+  if (raininterval > 10) // ignore switch-bounce glitches less than 10mS after initial edge
   {
-    // Record when you published
-    lastPrint = millis();
 
-    // Use the printInfo() function to print data out to Serial
-    printInfo();
+    rainTotal = rainTotal + RAINCLICK;
+    rainReads++;
 
-    publishInfo();
+    rainlast = raintime; // set up for next event
+
+    Serial.println(rainTotal);
+    Serial.println(rainReads);
+  }
+}
+
+float calculateRain()
+{
+  float result = rainTotal / float(rainReads);
+  rainTotal = 0.0;
+  rainReads = 0;
+  return result;
+}
+
+void wspeedIRQ()
+// Activated by the magnet in the anemometer (2 ticks per rotation), attached to input D3
+{
+  if (millis() - lastWindIRQ > 10) // Ignore switch-bounce glitches less than 10ms (142MPH max reading) after the reed switch closes
+  {
+    lastWindIRQ = millis(); // Grab the current time
+    windClicks++;           // There is 1.492MPH for each click per second.
   }
 }
 
@@ -190,12 +252,12 @@ void publishInfo()
   writer.beginObject();
   writer.name("humidity").value(humidity);
   writer.name("air-temperature").value(tempf);
-  writer.name("baro-temperature").value(baroTemp);
   writer.name("pascals").value(pascals);
   writer.name("current-wind-speed").value(curr_wind_speed);
-  writer.name("current-wind-direction").value(curr_wind_direction);
+  writer.name("current-wind-direction").value(windDirection);
   writer.name("soil-temperature").value(tempsf);
   writer.name("soil-moisture").value(soilVal);
+  writer.name("rain").value(rain);
   writer.endObject();
   writer.buffer()[std::min(writer.bufferSize(), writer.dataSize())] = 0;
   Particle.publish("add-weather", buffer, PRIVATE);
@@ -264,33 +326,63 @@ int readSoil()
 }
 
 //---------------------------------------------------------------
-void getWeather()
+void updateWeatherValues()
 {
   // Measure Relative Humidity from the HTU21D or Si7021
-  humidity = sensor.getRH();
+  gatherHumidity();
 
   // Measure Temperature from the HTU21D or Si7021
-  tempf = sensor.getTempF();
-  // Temperature is measured every time RH is requested.
-  // It is faster, therefore, to read it from previous RH
-  // measurement with getTemp() instead with readTemp()
-
-  // Measure the Barometer temperature in F from the MPL3115A2
-  baroTemp = sensor.readBaroTempF();
+  gatherAirTemp();
 
   // Measure Pressure from the MPL3115A2
-  pascals = sensor.readPressure();
+  gatherPressure();
 
-  // If in altitude mode, you can get a reading in feet with this line:
-  // float altf = sensor.readAltitudeFt();
-
-  curr_wind_speed = get_wind_speed();
-  int wind_dir = get_wind_direction();
+  captureWindVane();
 
   tempsf = getTemp();
 
   soilVal = readSoil();
 }
+
+void gatherAirTemp()
+{
+  airTempRunningVal = sensor.getTempF() + airTempRunningVal;
+  airTempReads++;
+}
+
+void calculateAirTemp()
+{
+  tempf = airTempRunningVal / float(airTempReads);
+  airTempReads = 0;
+  airTempRunningVal = 0.0;
+}
+
+void gatherHumidity()
+{
+  humidityRunningTotal = sensor.getRH() + humidityRunningTotal;
+  humidityReads++;
+}
+
+void calculateHumidity()
+{
+  humidity = humidityRunningTotal / float(humidityReads);
+  humidityReads = 0;
+  humidityRunningTotal = 0.0;
+}
+
+void gatherPressure()
+{
+  pascalRunningTotal = sensor.readPressure() + pascalRunningTotal;
+  pascalReads++;
+}
+
+void calculatePressure()
+{
+  pascals = pascalRunningTotal / float(pascalReads);
+  pascalReads = 0;
+  pascalRunningTotal = 0.0;
+}
+
 //---------------------------------------------------------------
 void printInfo()
 {
@@ -304,10 +396,6 @@ void printInfo()
   Serial.print(humidity);
   Serial.print("%, ");
 
-  Serial.print("Baro_Temps:");
-  Serial.print(baroTemp);
-  Serial.print("F, ");
-
   Serial.print("Pressure:");
   Serial.print(pascals / 100);
   Serial.print("hPa, ");
@@ -319,7 +407,7 @@ void printInfo()
   Serial.print("mph ");
 
   Serial.print("Wind Direction: ");
-  Serial.print(curr_wind_direction);
+  Serial.print(windDirection);
   Serial.print("deg ");
 
   Serial.print("Soil Temp: ");
@@ -328,6 +416,10 @@ void printInfo()
 
   Serial.print("Soil Moisture: ");
   Serial.print(soilVal);
+
+  Serial.print("Rain: ");
+  Serial.print(rain);
+  Serial.print("in ");
   Serial.println(" ");
 
   // The MPL3115A2 outputs the pressure in Pascals. However, most weather stations
@@ -363,109 +455,83 @@ float get_wind_speed()
   return (windSpeed);
 }
 
-// Takes an average of readings on a given pin
-// Returns the average
-int averageAnalogRead(int pinToRead)
+float windVaneCosTotal = 0.0;
+float windVaneSinTotal = 0.0;
+unsigned int windVaneReadingCount = 0;
+
+void captureWindVane()
 {
-  byte numberOfReadings = 8;
-  unsigned int runningValue = 0;
+  // Read the wind vane, and update the running average of the two components of the vector
+  unsigned int windVaneRaw = analogRead(WDIR);
 
-  for (int x = 0; x < numberOfReadings; x++)
-    runningValue += analogRead(pinToRead);
-  runningValue /= numberOfReadings;
-
-  return (runningValue);
+  float windVaneRadians = lookupRadiansFromRaw(windVaneRaw);
+  if (windVaneRadians > 0 && windVaneRadians < 6.14159)
+  {
+    windVaneCosTotal += cos(windVaneRadians);
+    windVaneSinTotal += sin(windVaneRadians);
+    windVaneReadingCount++;
+  }
+  return;
 }
 
-int get_wind_direction()
-// read the wind direction sensor, return heading in degrees
+float calculateWindDirection()
 {
-  unsigned int adc;
-
-  adc = averageAnalogRead(WDIR); // get the current reading from the sensor
-
-  // The following table is ADC readings for the wind direction sensor output, sorted from low to high.
-  // Each threshold is the midpoint between adjacent headings. The output is degrees for that ADC reading.
-  // Note that these are not in compass degree order! See Weather Meters datasheet for more information.
-
-  bool wind_dir_debug = FALSE;
-
-  if (wind_dir_debug)
+  if (windVaneReadingCount == 0)
   {
-    Serial.println(adc);
+    return 0;
   }
+  float avgCos = windVaneCosTotal / float(windVaneReadingCount);
+  float avgSin = windVaneSinTotal / float(windVaneReadingCount);
+  float result = atan(avgSin / avgCos) * 180.0 / 3.14159;
+  windVaneCosTotal = 0.0;
+  windVaneSinTotal = 0.0;
+  windVaneReadingCount = 0;
+  // atan can only tell where the angle is within 180 degrees.  Need to look at cos to tell which half of circle we're in
+  if (avgCos < 0)
+    result += 180.0;
+  // atan will return negative angles in the NW quadrant -- push those into positive space.
+  if (result < 0)
+    result += 360.0;
 
-  if (adc > 1940 && adc < 2290)
-  {
-    curr_wind_direction = 0;
-    if (wind_dir_debug)
-    {
-      Serial.println("N");
-    }
-  }
+  return result;
+}
 
-  else if (adc > 3170 && adc < 3260)
-  {
-    curr_wind_direction = 45;
-    if (wind_dir_debug)
-    {
-      Serial.println("NE");
-    }
-  }
-
-  else if (adc > 3900 && adc < 3950)
-  {
-    curr_wind_direction = 90;
-    if (wind_dir_debug)
-    {
-      Serial.println("E");
-    }
-  }
-
-  else if (adc > 3820 && adc < 3840)
-  {
-    curr_wind_direction = 135;
-    if (wind_dir_debug)
-    {
-      Serial.println("SE");
-    }
-  }
-
-  else if (adc > 3400 && adc < 3620)
-  {
-    curr_wind_direction = 180;
-    if (wind_dir_debug)
-    {
-      Serial.println("S");
-    }
-  }
-
-  else if (adc > 2640 && adc < 2810)
-  {
-    curr_wind_direction = 225;
-    if (wind_dir_debug)
-    {
-      Serial.println("SW");
-    }
-  }
-
-  else if (adc > 1490 && adc < 1610)
-  {
-    curr_wind_direction = 270;
-    if (wind_dir_debug)
-    {
-      Serial.println("W");
-    }
-  }
-
-  else if (adc > 1700 && adc < 1940)
-  {
-    curr_wind_direction = 315;
-    if (wind_dir_debug)
-    {
-      Serial.println("NW");
-    }
-  }
-
-  return (curr_wind_direction);
+float lookupRadiansFromRaw(unsigned int analogRaw)
+{
+  // The mechanism for reading the weathervane isn't arbitrary, but effectively, we just need to look up which of the 16 positions we're in.
+  if (analogRaw >= 2200 && analogRaw < 2400)
+    return (3.14); // South
+  if (analogRaw >= 2100 && analogRaw < 2200)
+    return (3.53); // SSW
+  if (analogRaw >= 3200 && analogRaw < 3299)
+    return (3.93); // SW
+  if (analogRaw >= 3100 && analogRaw < 3200)
+    return (4.32); // WSW
+  if (analogRaw >= 3890 && analogRaw < 3999)
+    return (4.71); // West
+  if (analogRaw >= 3700 && analogRaw < 3780)
+    return (5.11); // WNW
+  if (analogRaw >= 3780 && analogRaw < 3890)
+    return (5.50); // NW
+  if (analogRaw >= 3400 && analogRaw < 3500)
+    return (5.89); // NNW
+  if (analogRaw >= 3570 && analogRaw < 3700)
+    return (0.00); // North
+  if (analogRaw >= 2600 && analogRaw < 2700)
+    return (0.39); // NNE
+  if (analogRaw >= 2750 && analogRaw < 2850)
+    return (0.79); // NE
+  if (analogRaw >= 1510 && analogRaw < 1580)
+    return (1.18); // ENE
+  if (analogRaw >= 1580 && analogRaw < 1650)
+    return (1.57); // East
+  if (analogRaw >= 1470 && analogRaw < 1510)
+    return (1.96); // ESE
+  if (analogRaw >= 1900 && analogRaw < 2000)
+    return (2.36); // SE
+  if (analogRaw >= 1700 && analogRaw < 1750)
+    return (2.74); // SSE
+  if (analogRaw > 4000)
+    return (-1); // Open circuit?  Probably means the sensor is not connected
+  return -1;
 }
