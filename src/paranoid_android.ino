@@ -291,9 +291,6 @@ void updateWeatherValues()
   // Measure Pressure from the MPL3115A2
   pascals = sensor.readPressure();
 
-  // If in altitude mode, you can get a reading in feet with this line:
-  // float altf = sensor.readAltitudeFt();
-
   curr_wind_speed = get_wind_speed();
   int wind_dir = get_wind_direction();
 
@@ -326,6 +323,19 @@ void calculateHumidity()
   humidity = humidityRunningTotal / float(humidityReads);
   humidityReads = 0;
   humidityRunningTotal = 0.0;
+}
+
+void gatherPressure()
+{
+  pascalRunningTotal = sensor.readPressure() + pascalRunningTotal;
+  pascalReads++;
+}
+
+void calculatePressure()
+{
+  pascals = pascalRunningTotal / float(pascalRunningTotal);
+  pascalReads = 0;
+  pascalRunningTotal = 0.0;
 }
 
 //---------------------------------------------------------------
