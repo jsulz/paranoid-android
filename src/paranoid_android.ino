@@ -84,7 +84,10 @@ float airTempRunningVal = 0.0;
 // Soil temp and moisture
 int SMOISTURE = A1;
 int SOILPOWER = D5;
-float soilVal = 0;
+float soilMoisture = 0.0;
+float soilMoistureTotal = 0.0;
+float soilMoistureReads = 0;
+
 int DS18S20_Pin = D4;    // DS18S20 Signal pin on digital 2
 OneWire ds(DS18S20_Pin); // on digital pin 2
 float tempsf = 0;
@@ -118,6 +121,7 @@ void loop()
     windDirection = calculateWindDirection();
     curr_wind_speed = get_wind_speed();
     rain = calculateRain();
+    soilMoisture = calculateSoilMoisture();
 
     // Record when you published
     lastPrint = millis();
@@ -134,6 +138,78 @@ void loop()
   }
   // Add a bit of a gathering delay to help smooth out weird gusts, etc
   delay(100);
+}
+
+void publishInfo()
+{
+  char buffer[256];
+  JSONBufferWriter writer(buffer, sizeof(buffer));
+  // sprintf( buffer, "%f:%f:%f:%f:%f:%f:%f:%f", humidity, tempf, baroTemp, pascals, curr_wind_speed, curr_wind_direction, tempsf, soilVal );
+  writer.beginObject();
+  writer.name("humidity").value(humidity);
+  writer.name("air-temperature").value(tempf);
+  writer.name("pascals").value(pascals);
+  writer.name("current-wind-speed").value(curr_wind_speed);
+  writer.name("current-wind-direction").value(windDirection);
+  writer.name("soil-temperature").value(tempsf);
+  writer.name("soil-moisture").value(soilMoisture);
+  writer.name("rain").value(rain);
+  writer.endObject();
+  writer.buffer()[std::min(writer.bufferSize(), writer.dataSize())] = 0;
+  Particle.publish("add-weather", buffer, PRIVATE);
+}
+
+//---------------------------------------------------------------
+void printInfo()
+{
+  // This function prints the weather data out to the default Serial Port
+
+  Serial.print("Temp:");
+  Serial.print(tempf);
+  Serial.print("F, ");
+
+  Serial.print("Humidity:");
+  Serial.print(humidity);
+  Serial.print("%, ");
+
+  Serial.print("Pressure:");
+  Serial.print(pascals / 100);
+  Serial.print("hPa, ");
+  Serial.print((pascals / 100) * 0.0295300);
+  Serial.print("in.Hg ");
+
+  Serial.print("Wind Speed: ");
+  Serial.print(curr_wind_speed);
+  Serial.print("mph ");
+
+  Serial.print("Wind Direction: ");
+  Serial.print(windDirection);
+  Serial.print("deg ");
+
+  Serial.print("Soil Temp: ");
+  Serial.print(tempsf);
+  Serial.print("deg ");
+
+  Serial.print("Soil Moisture: ");
+  Serial.print(soilMoisture);
+
+  Serial.print("Rain: ");
+  Serial.print(rain);
+  Serial.print("in ");
+  Serial.println(" ");
+
+  // The MPL3115A2 outputs the pressure in Pascals. However, most weather stations
+  // report pressure in hectopascals or millibars. Divide by 100 to get a reading
+  // more closely resembling what online weather reports may say in hPa or mb.
+  // Another common unit for pressure is Inches of Mercury (in.Hg). To convert
+  // from mb to in.Hg, use the following formula. P(inHg) = 0.0295300 * P(mb)
+  // More info on conversion can be found here:
+  // www.srh.noaa.gov/images/epz/wxcalc/pressureConversion.pdf
+
+  // If in altitude mode, print with these lines
+  // Serial.print("Altitude:");
+  // Serial.print(altf);
+  // Serial.println("ft.");
 }
 
 //--------------------Setup the sensors -----------------------
@@ -216,25 +292,6 @@ void wspeedIRQ()
   }
 }
 
-void publishInfo()
-{
-  char buffer[256];
-  JSONBufferWriter writer(buffer, sizeof(buffer));
-  // sprintf( buffer, "%f:%f:%f:%f:%f:%f:%f:%f", humidity, tempf, baroTemp, pascals, curr_wind_speed, curr_wind_direction, tempsf, soilVal );
-  writer.beginObject();
-  writer.name("humidity").value(humidity);
-  writer.name("air-temperature").value(tempf);
-  writer.name("pascals").value(pascals);
-  writer.name("current-wind-speed").value(curr_wind_speed);
-  writer.name("current-wind-direction").value(windDirection);
-  writer.name("soil-temperature").value(tempsf);
-  writer.name("soil-moisture").value(soilVal);
-  writer.name("rain").value(rain);
-  writer.endObject();
-  writer.buffer()[std::min(writer.bufferSize(), writer.dataSize())] = 0;
-  Particle.publish("add-weather", buffer, PRIVATE);
-}
-
 // https://github.com/sparkfun/simple_sketches/blob/master/DS18B20/DS18B20.ino
 float getTemp()
 {
@@ -287,14 +344,28 @@ float getTemp()
 }
 
 // https://learn.sparkfun.com/tutorials/soil-moisture-sensor-hookup-guide
-int readSoil()
+float readSoil()
 {
 
-  digitalWrite(SOILPOWER, HIGH);   // turn D7 "On"
-  delay(10);                       // wait 10 milliseconds
-  soilVal = analogRead(SMOISTURE); // Read the SIG value form sensor
-  digitalWrite(SOILPOWER, LOW);    // turn D7 "Off"
-  return soilVal;                  // send current moisture value
+  digitalWrite(SOILPOWER, HIGH);         // turn D7 "On"
+  delay(10);                             // wait 10 milliseconds
+  float soilVal = analogRead(SMOISTURE); // Read the SIG value form sensor
+  digitalWrite(SOILPOWER, LOW);          // turn D7 "Off"
+  return soilVal;                        // send current moisture value
+}
+
+void gatherSoilMoisture()
+{
+  soilMoistureTotal = soilMoistureTotal + readSoil();
+  soilMoistureReads++;
+}
+
+float calculateSoilMoisture()
+{
+  float result = float(soilMoistureTotal) / float(soilMoistureReads);
+  soilMoistureReads = 0;
+  soilMoistureTotal = 0;
+  return result;
 }
 
 //---------------------------------------------------------------
@@ -313,7 +384,7 @@ void updateWeatherValues()
 
   tempsf = getTemp();
 
-  soilVal = readSoil();
+  gatherSoilMoisture();
 }
 
 void gatherAirTemp()
@@ -353,59 +424,6 @@ void calculatePressure()
   pascals = pascalRunningTotal / float(pascalReads);
   pascalReads = 0;
   pascalRunningTotal = 0.0;
-}
-
-//---------------------------------------------------------------
-void printInfo()
-{
-  // This function prints the weather data out to the default Serial Port
-
-  Serial.print("Temp:");
-  Serial.print(tempf);
-  Serial.print("F, ");
-
-  Serial.print("Humidity:");
-  Serial.print(humidity);
-  Serial.print("%, ");
-
-  Serial.print("Pressure:");
-  Serial.print(pascals / 100);
-  Serial.print("hPa, ");
-  Serial.print((pascals / 100) * 0.0295300);
-  Serial.print("in.Hg ");
-
-  Serial.print("Wind Speed: ");
-  Serial.print(curr_wind_speed);
-  Serial.print("mph ");
-
-  Serial.print("Wind Direction: ");
-  Serial.print(windDirection);
-  Serial.print("deg ");
-
-  Serial.print("Soil Temp: ");
-  Serial.print(tempsf);
-  Serial.print("deg ");
-
-  Serial.print("Soil Moisture: ");
-  Serial.print(soilVal);
-
-  Serial.print("Rain: ");
-  Serial.print(rain);
-  Serial.print("in ");
-  Serial.println(" ");
-
-  // The MPL3115A2 outputs the pressure in Pascals. However, most weather stations
-  // report pressure in hectopascals or millibars. Divide by 100 to get a reading
-  // more closely resembling what online weather reports may say in hPa or mb.
-  // Another common unit for pressure is Inches of Mercury (in.Hg). To convert
-  // from mb to in.Hg, use the following formula. P(inHg) = 0.0295300 * P(mb)
-  // More info on conversion can be found here:
-  // www.srh.noaa.gov/images/epz/wxcalc/pressureConversion.pdf
-
-  // If in altitude mode, print with these lines
-  // Serial.print("Altitude:");
-  // Serial.print(altf);
-  // Serial.println("ft.");
 }
 
 /****************Wind Functions***************************/
