@@ -153,6 +153,13 @@ void printInfo()
   Serial.print(humidity);
   Serial.print("%, ");
 
+  // The MPL3115A2 outputs the pressure in Pascals. However, most weather stations
+  // report pressure in hectopascals or millibars. Divide by 100 to get a reading
+  // more closely resembling what online weather reports may say in hPa or mb.
+  // Another common unit for pressure is Inches of Mercury (in.Hg). To convert
+  // from mb to in.Hg, use the following formula. P(inHg) = 0.0295300 * P(mb)
+  // More info on conversion can be found here:
+  // www.srh.noaa.gov/images/epz/wxcalc/pressureConversion.pdf
   Serial.print("Pressure:");
   Serial.print(pascals / 100);
   Serial.print("hPa, ");
@@ -178,19 +185,6 @@ void printInfo()
   Serial.print(rain);
   Serial.print("in ");
   Serial.println(" ");
-
-  // The MPL3115A2 outputs the pressure in Pascals. However, most weather stations
-  // report pressure in hectopascals or millibars. Divide by 100 to get a reading
-  // more closely resembling what online weather reports may say in hPa or mb.
-  // Another common unit for pressure is Inches of Mercury (in.Hg). To convert
-  // from mb to in.Hg, use the following formula. P(inHg) = 0.0295300 * P(mb)
-  // More info on conversion can be found here:
-  // www.srh.noaa.gov/images/epz/wxcalc/pressureConversion.pdf
-
-  // If in altitude mode, print with these lines
-  // Serial.print("Altitude:");
-  // Serial.print(altf);
-  // Serial.println("ft.");
 }
 
 //--------------------Setup the sensors -----------------------
@@ -198,30 +192,13 @@ void setup()
 {
   Serial.begin(9600); // open serial over USB at 9600 baud
 
-  // Make sure your Serial Terminal app is closed before powering your device
-  // Now open your Serial Terminal, and hit any key to continue!
-  // Serial.println("Press any key to begin");
-  // This line pauses the Serial port until a key is pressed
-  // while(!Serial.available()) Spark.process();
-
   // Initialize the I2C sensors and ping them
   sensor.begin();
 
-  /*You can only receive accurate barometric readings or accurate altitude
-  readings at a given time, not both at the same time. The following two lines
-  tell the sensor what mode to use. You could easily write a function that
-  takes a reading in one made and then switches to the other mode to grab that
-  reading, resulting in data that contains both accurate altitude and barometric
-  readings. For this example, we will only be using the barometer mode. Be sure
-  to only uncomment one line at a time. */
   sensor.setModeBarometer(); // Set to Barometer Mode
 
   // These are additional MPL3115A2 functions that MUST be called for the sensor to work.
   sensor.setOversampleRate(7); // Set Oversample rate
-  // Call with a rate from 0 to 7. See page 33 for table of ratios.
-  // Sets the over sample rate. Datasheet calls for 128 but you can set it
-  // from 1 to 128 samples. The higher the oversample rate the greater
-  // the time between data samples.
 
   sensor.enableEventFlags(); // Necessary register calls to enble temp, baro and alt
 
@@ -237,9 +214,32 @@ void setup()
   interrupts();
 }
 
+//---------------------------------------------------------------
+void updateWeatherValues()
+{
+  // Measure Relative Humidity from the HTU21D or Si7021
+  gatherHumidity();
+
+  // Measure Temperature from the HTU21D or Si7021
+  gatherAirTemp();
+
+  // Measure Pressure from the MPL3115A2
+  gatherPressure();
+
+  // Measure wind direction from vane
+  gatherWindDirection();
+
+  // Measure soil temperature
+  gatherSoilTemp();
+
+  // Measure soil moisture
+  gatherSoilMoisture();
+}
+
+/****************Rain Functions ***************************/
+
 void rainIRQ()
 // Count rain gauge bucket tips as they occur
-// Activated by the magnet and reed switch in the rain gauge, attached to input D2
 {
   raintime = millis();                // grab current time
   raininterval = raintime - rainlast; // calculate interval between this and last event
@@ -259,6 +259,8 @@ float calculateRain()
   rainReads = 0;
   return result;
 }
+
+/****************Soil temp Functions ***************************/
 
 // https://github.com/sparkfun/simple_sketches/blob/master/DS18B20/DS18B20.ino
 float getSoilTemp()
@@ -325,6 +327,8 @@ float calculateSoilTemp()
   return result;
 }
 
+/****************Soil Moisture Functions ***************************/
+
 // https://learn.sparkfun.com/tutorials/soil-moisture-sensor-hookup-guide
 float readSoil()
 {
@@ -350,24 +354,7 @@ float calculateSoilMoisture()
   return result;
 }
 
-//---------------------------------------------------------------
-void updateWeatherValues()
-{
-  // Measure Relative Humidity from the HTU21D or Si7021
-  gatherHumidity();
-
-  // Measure Temperature from the HTU21D or Si7021
-  gatherAirTemp();
-
-  // Measure Pressure from the MPL3115A2
-  gatherPressure();
-
-  gatherWindDirection();
-
-  gatherSoilTemp();
-
-  gatherSoilMoisture();
-}
+/****************Air Temperature Functions ***************************/
 
 void gatherAirTemp()
 {
@@ -382,6 +369,8 @@ void calculateAirTemp()
   airTempRunningVal = 0.0;
 }
 
+/****************Humidity Functions ***************************/
+
 void gatherHumidity()
 {
   humidityRunningTotal = sensor.getRH() + humidityRunningTotal;
@@ -394,6 +383,8 @@ void calculateHumidity()
   humidityReads = 0;
   humidityRunningTotal = 0.0;
 }
+
+/****************Barometric Pressure Functions ***************************/
 
 void gatherPressure()
 {
