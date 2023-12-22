@@ -81,16 +81,19 @@ float tempf = 0.0;
 int airTempReads = 0;
 float airTempRunningVal = 0.0;
 
-// Soil temp and moisture
+// Soil moisture
 int SMOISTURE = A1;
 int SOILPOWER = D5;
 float soilMoisture = 0.0;
 float soilMoistureTotal = 0.0;
 float soilMoistureReads = 0;
 
+// Soil Temp
 int DS18S20_Pin = D4;    // DS18S20 Signal pin on digital 2
 OneWire ds(DS18S20_Pin); // on digital pin 2
-float tempsf = 0;
+float soilTemp = 0.0;
+float soilTempRunningTotal = 0.0;
+int soilTempReads = 0;
 
 // Humidity
 float humidity = 0.0;
@@ -122,6 +125,7 @@ void loop()
     curr_wind_speed = get_wind_speed();
     rain = calculateRain();
     soilMoisture = calculateSoilMoisture();
+    soilTemp = calculateSoilTemp();
 
     // Record when you published
     lastPrint = millis();
@@ -151,7 +155,7 @@ void publishInfo()
   writer.name("pascals").value(pascals);
   writer.name("current-wind-speed").value(curr_wind_speed);
   writer.name("current-wind-direction").value(windDirection);
-  writer.name("soil-temperature").value(tempsf);
+  writer.name("soil-temperature").value(soilTemp);
   writer.name("soil-moisture").value(soilMoisture);
   writer.name("rain").value(rain);
   writer.endObject();
@@ -187,7 +191,7 @@ void printInfo()
   Serial.print("deg ");
 
   Serial.print("Soil Temp: ");
-  Serial.print(tempsf);
+  Serial.print(soilTemp);
   Serial.print("deg ");
 
   Serial.print("Soil Moisture: ");
@@ -293,7 +297,7 @@ void wspeedIRQ()
 }
 
 // https://github.com/sparkfun/simple_sketches/blob/master/DS18B20/DS18B20.ino
-float getTemp()
+float getSoilTemp()
 {
   // returns the temperature from one DS18S20 in DEG Celsius
 
@@ -343,6 +347,20 @@ float getTemp()
   return (TemperatureSum * 18 + 5) / 10 + 32;
 }
 
+void gatherSoilTemp()
+{
+  soilTempRunningTotal = soilTempRunningTotal + getSoilTemp();
+  soilTempReads++;
+}
+
+float calculateSoilTemp()
+{
+  float result = soilTempRunningTotal / float(soilTempReads);
+  soilTempReads = 0;
+  soilTempRunningTotal = 0.0;
+  return result;
+}
+
 // https://learn.sparkfun.com/tutorials/soil-moisture-sensor-hookup-guide
 float readSoil()
 {
@@ -382,7 +400,7 @@ void updateWeatherValues()
 
   captureWindVane();
 
-  tempsf = getTemp();
+  gatherSoilTemp();
 
   gatherSoilMoisture();
 }
