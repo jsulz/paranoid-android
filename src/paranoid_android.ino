@@ -54,7 +54,7 @@ volatile unsigned long rainTotal = 0.0;
 float RAINCLICK = 0.011;
 
 // Air Temperature
-float tempf = 0.0;
+float airTemp = 0.0;
 int airTempReads = 0;
 float airTempRunningVal = 0.0;
 
@@ -88,6 +88,33 @@ int prod_publish_window = 60000;
 byte minutes;
 long lastPrint = 0;
 
+//--------------------Setup the sensors -----------------------
+void setup()
+{
+  Serial.begin(9600); // open serial over USB at 9600 baud
+
+  // Initialize the I2C sensors and ping them
+  sensor.begin();
+
+  sensor.setModeBarometer(); // Set to Barometer Mode
+
+  // These are additional MPL3115A2 functions that MUST be called for the sensor to work.
+  sensor.setOversampleRate(7); // Set Oversample rate
+
+  sensor.enableEventFlags(); // Necessary register calls to enble temp, baro and alt
+
+  pinMode(WSPEED, INPUT_PULLUP);
+  pinMode(WDIR, INPUT);
+
+  pinMode(SOILPOWER, OUTPUT);
+  digitalWrite(SOILPOWER, LOW);
+
+  pinMode(RAINPIN, INPUT_PULLUP);
+  attachInterrupt(RAINPIN, rainIRQ, FALLING);
+  attachInterrupt(WSPEED, wspeedIRQ, FALLING);
+  interrupts();
+}
+
 //----------------Main Program Loop and publish-------------------
 void loop()
 {
@@ -95,9 +122,9 @@ void loop()
   // This math looks at the current time vs the last time a publish happened
   if (millis() - lastPrint > debug_publish_window) // Publishes every 12000 milliseconds, or 12 seconds
   {
-    calculateAirTemp();
-    calculateHumidity();
-    calculatePressure();
+    airTemp = calculateAirTemp();
+    humidity = calculateHumidity();
+    pascals = calculatePressure();
     windDirection = calculateWindDirection();
     curr_wind_speed = get_wind_speed();
     rain = calculateRain();
@@ -107,8 +134,8 @@ void loop()
     // Record when you published
     lastPrint = millis();
 
-    // Use the printInfo() function to print data out to Serial
-    printInfo();
+    // Use the printInfo() function to print data out to Serial - for debugging only
+    // printInfo();
 
     publishInfo();
   }
@@ -128,13 +155,13 @@ void publishInfo()
 
   writer.beginObject();
   writer.name("humidity").value(humidity);
-  writer.name("air-temperature").value(tempf);
-  writer.name("pascals").value(pascals);
-  writer.name("current-wind-speed").value(curr_wind_speed);
-  writer.name("current-wind-direction").value(windDirection);
+  writer.name("air-temperature").value(airTemp);
+  writer.name("atmospheric-pressure").value(pascals);
+  writer.name("wind-speed").value(curr_wind_speed);
+  writer.name("wind-direction").value(windDirection);
   writer.name("soil-temperature").value(soilTemp);
   writer.name("soil-moisture").value(soilMoisture);
-  writer.name("rain").value(rain);
+  writer.name("rainfall").value(rain);
   writer.endObject();
   writer.buffer()[std::min(writer.bufferSize(), writer.dataSize())] = 0;
   Particle.publish("add-weather", buffer, PRIVATE);
@@ -146,7 +173,7 @@ void printInfo()
   // This function prints the weather data out to the default Serial Port
 
   Serial.print("Temp:");
-  Serial.print(tempf);
+  Serial.print(airTemp);
   Serial.print("F, ");
 
   Serial.print("Humidity:");
@@ -187,34 +214,7 @@ void printInfo()
   Serial.println(" ");
 }
 
-//--------------------Setup the sensors -----------------------
-void setup()
-{
-  Serial.begin(9600); // open serial over USB at 9600 baud
-
-  // Initialize the I2C sensors and ping them
-  sensor.begin();
-
-  sensor.setModeBarometer(); // Set to Barometer Mode
-
-  // These are additional MPL3115A2 functions that MUST be called for the sensor to work.
-  sensor.setOversampleRate(7); // Set Oversample rate
-
-  sensor.enableEventFlags(); // Necessary register calls to enble temp, baro and alt
-
-  pinMode(WSPEED, INPUT_PULLUP);
-  pinMode(WDIR, INPUT);
-
-  pinMode(SOILPOWER, OUTPUT);
-  digitalWrite(SOILPOWER, LOW);
-
-  pinMode(RAINPIN, INPUT_PULLUP);
-  attachInterrupt(RAINPIN, rainIRQ, FALLING);
-  attachInterrupt(WSPEED, wspeedIRQ, FALLING);
-  interrupts();
-}
-
-//---------------------------------------------------------------
+//-------------------------Get all weather values --------------------------------------
 void updateWeatherValues()
 {
   // Measure Relative Humidity from the HTU21D or Si7021
@@ -362,11 +362,12 @@ void gatherAirTemp()
   airTempReads++;
 }
 
-void calculateAirTemp()
+float calculateAirTemp()
 {
-  tempf = airTempRunningVal / float(airTempReads);
+  float result = airTempRunningVal / float(airTempReads);
   airTempReads = 0;
   airTempRunningVal = 0.0;
+  return result;
 }
 
 /****************Humidity Functions ***************************/
@@ -377,11 +378,12 @@ void gatherHumidity()
   humidityReads++;
 }
 
-void calculateHumidity()
+float calculateHumidity()
 {
-  humidity = humidityRunningTotal / float(humidityReads);
+  float result = humidityRunningTotal / float(humidityReads);
   humidityReads = 0;
   humidityRunningTotal = 0.0;
+  return result;
 }
 
 /****************Barometric Pressure Functions ***************************/
@@ -392,11 +394,12 @@ void gatherPressure()
   pascalReads++;
 }
 
-void calculatePressure()
+float calculatePressure()
 {
-  pascals = pascalRunningTotal / float(pascalReads);
+  float result = pascalRunningTotal / float(pascalReads);
   pascalReads = 0;
   pascalRunningTotal = 0.0;
+  return result;
 }
 
 /****************Wind Speed Functions ***************************/
