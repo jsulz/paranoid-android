@@ -1,41 +1,17 @@
 /******************************************************************************
-  SparkFun Photon Weather Shield basic example
-  Joel Bartlett @ SparkFun Electronics
-  Original Creation Date: May 18, 2015
-  Updated August 21, 2015
-  This sketch prints the temperature, humidity, and barometric pressure OR
-  altitude to the Serial port.
+  The code below was aided greatly by:
+    SparkFun Photon Weather Shield basic example
+    Authors: Joel Bartlett @ SparkFun Electronics
+    Original Creation Date: May 18, 2015
+    URL: https://github.com/sparkfun/Photon_Weather_Shield/blob/master/Firmware/SparkFun_Photon_Weather_Basic_Soil/SparkFun_Photon_Weather_Basic_Soil.ino
 
-  The library used in this example can be found here:
-  https://github.com/sparkfun/SparkFun_Photon_Weather_Shield_Particle_Library
-
-  Hardware Connections:
-  This sketch was written specifically for the Photon Weather Shield,
-  which connects the HTU21D and MPL3115A2 to the I2C bus by default.
-  If you have an HTU21D and/or an MPL3115A2 breakout,	use the following
-  hardware setup:
-      HTU21D ------------- Photon
-      (-) ------------------- GND
-      (+) ------------------- 3.3V (VCC)
-       CL ------------------- D1/SCL
-       DA ------------------- D0/SDA
-
-    MPL3115A2 ------------- Photon
-      GND ------------------- GND
-      VCC ------------------- 3.3V (VCC)
-      SCL ------------------ D1/SCL
-      SDA ------------------ D0/SDA
-
-  Development environment specifics:
-    IDE: Particle Dev
-    Hardware Platform: Particle Photon
-                       Particle Core
-
-  This code is beerware; if you see me (or any other SparkFun
-  employee) at the local, and you've found our code helpful,
-  please buy us a round!
-  Distributed as-is; no warranty is given.
+  And also by:
+    weatherstation
+    Author:
+    Original creation Date:
+    URL: https://github.com/rpurser47/weatherstation/tree/master
 *******************************************************************************/
+
 /**************************
 Helping libraries
 *************************/
@@ -65,8 +41,9 @@ float curr_wind_speed = 0;
 // Wind direction
 const byte WDIR = A0;
 float windDirection = 0.0;
-float windDirectionTotal = 0.0;
-int windDirectionReads = 0;
+float windVaneCosTotal = 0.0;
+float windVaneSinTotal = 0.0;
+unsigned int windVaneReadingCount = 0;
 
 // Rain
 int RAINPIN = D2;
@@ -111,7 +88,7 @@ int prod_publish_window = 60000;
 byte minutes;
 long lastPrint = 0;
 
-//----------------Main Program Loop-------------------
+//----------------Main Program Loop and publish-------------------
 void loop()
 {
 
@@ -148,7 +125,7 @@ void publishInfo()
 {
   char buffer[256];
   JSONBufferWriter writer(buffer, sizeof(buffer));
-  // sprintf( buffer, "%f:%f:%f:%f:%f:%f:%f:%f", humidity, tempf, baroTemp, pascals, curr_wind_speed, curr_wind_direction, tempsf, soilVal );
+
   writer.beginObject();
   writer.name("humidity").value(humidity);
   writer.name("air-temperature").value(tempf);
@@ -273,9 +250,6 @@ void rainIRQ()
     rainReads++;
 
     rainlast = raintime; // set up for next event
-
-    Serial.println(rainTotal);
-    Serial.println(rainReads);
   }
 }
 
@@ -284,16 +258,6 @@ float calculateRain()
   float result = float(rainReads) * RAINCLICK;
   rainReads = 0;
   return result;
-}
-
-void wspeedIRQ()
-// Activated by the magnet in the anemometer (2 ticks per rotation), attached to input D3
-{
-  if (millis() - lastWindIRQ > 10) // Ignore switch-bounce glitches less than 10ms (142MPH max reading) after the reed switch closes
-  {
-    lastWindIRQ = millis(); // Grab the current time
-    windClicks++;           // There is 1.492MPH for each click per second.
-  }
 }
 
 // https://github.com/sparkfun/simple_sketches/blob/master/DS18B20/DS18B20.ino
@@ -398,7 +362,7 @@ void updateWeatherValues()
   // Measure Pressure from the MPL3115A2
   gatherPressure();
 
-  captureWindVane();
+  gatherWindDirection();
 
   gatherSoilTemp();
 
@@ -444,7 +408,17 @@ void calculatePressure()
   pascalRunningTotal = 0.0;
 }
 
-/****************Wind Functions***************************/
+/****************Wind Speed Functions ***************************/
+
+void wspeedIRQ()
+// Activated by the magnet in the anemometer (2 ticks per rotation), attached to input D3
+{
+  if (millis() - lastWindIRQ > 10) // Ignore switch-bounce glitches less than 10ms (142MPH max reading) after the reed switch closes
+  {
+    lastWindIRQ = millis(); // Grab the current time
+    windClicks++;           // There is 1.492MPH for each click per second.
+  }
+}
 
 // Returns the instataneous wind speed
 float get_wind_speed()
@@ -463,11 +437,9 @@ float get_wind_speed()
   return (windSpeed);
 }
 
-float windVaneCosTotal = 0.0;
-float windVaneSinTotal = 0.0;
-unsigned int windVaneReadingCount = 0;
+/****************Wind Direction Functions ***************************/
 
-void captureWindVane()
+void gatherWindDirection()
 {
   // Read the wind vane, and update the running average of the two components of the vector
   unsigned int windVaneRaw = analogRead(WDIR);
