@@ -86,11 +86,14 @@ OneWire ds(DS18S20_Pin); // on digital pin 2
 float tempsf = 0;
 
 // Humidity
-float humidity = 0;
+float humidity = 0.0;
+int humidityReads = 0;
+float humidityRunningTotal = 0.0;
 
 // Air pressure
-float pascals = 0;
-float baroTemp = 0;
+float pascals = 0.0;
+int pascalReads = 0;
+float pascalRunningTotal = 0.0;
 
 // Publish/time helpers
 int debug_publish_window = 12000;
@@ -106,6 +109,8 @@ void loop()
   if (millis() - lastPrint > debug_publish_window) // Publishes every 12000 milliseconds, or 12 seconds
   {
     calculateAirTemp();
+    calculateHumidity();
+
     // Record when you published
     lastPrint = millis();
 
@@ -202,7 +207,6 @@ void publishInfo()
   writer.beginObject();
   writer.name("humidity").value(humidity);
   writer.name("air-temperature").value(tempf);
-  writer.name("baro-temperature").value(baroTemp);
   writer.name("pascals").value(pascals);
   writer.name("current-wind-speed").value(curr_wind_speed);
   writer.name("current-wind-direction").value(curr_wind_direction);
@@ -279,16 +283,10 @@ int readSoil()
 void updateWeatherValues()
 {
   // Measure Relative Humidity from the HTU21D or Si7021
-  humidity = sensor.getRH();
+  gatherHumidity();
 
   // Measure Temperature from the HTU21D or Si7021
   gatherAirTemp();
-  // Temperature is measured every time RH is requested.
-  // It is faster, therefore, to read it from previous RH
-  // measurement with getTemp() instead with readTemp()
-
-  // Measure the Barometer temperature in F from the MPL3115A2
-  baroTemp = sensor.readBaroTempF();
 
   // Measure Pressure from the MPL3115A2
   pascals = sensor.readPressure();
@@ -314,11 +312,20 @@ void calculateAirTemp()
 {
   tempf = airTempRunningVal / float(airTempReads);
   airTempReads = 0;
-  airTempRunningVal = 0;
+  airTempRunningVal = 0.0;
 }
 
 void gatherHumidity()
 {
+  humidityRunningTotal = sensor.getRH() + humidityRunningTotal;
+  humidityReads++;
+}
+
+void calculateHumidity()
+{
+  humidity = humidityRunningTotal / float(humidityReads);
+  humidityReads = 0;
+  humidityRunningTotal = 0.0;
 }
 
 //---------------------------------------------------------------
@@ -333,10 +340,6 @@ void printInfo()
   Serial.print("Humidity:");
   Serial.print(humidity);
   Serial.print("%, ");
-
-  Serial.print("Baro_Temps:");
-  Serial.print(baroTemp);
-  Serial.print("F, ");
 
   Serial.print("Pressure:");
   Serial.print(pascals / 100);
