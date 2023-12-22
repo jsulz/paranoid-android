@@ -110,6 +110,7 @@ void loop()
   {
     calculateAirTemp();
     calculateHumidity();
+    calculatePressure();
 
     // Record when you published
     lastPrint = millis();
@@ -125,7 +126,7 @@ void loop()
     updateWeatherValues();
   }
   // Add a bit of a gathering delay to help smooth out weird gusts, etc
-  delay(10);
+  delay(100);
 }
 
 //--------------------Setup the sensors -----------------------
@@ -289,7 +290,7 @@ void updateWeatherValues()
   gatherAirTemp();
 
   // Measure Pressure from the MPL3115A2
-  pascals = sensor.readPressure();
+  gatherPressure();
 
   curr_wind_speed = get_wind_speed();
   int wind_dir = get_wind_direction();
@@ -333,7 +334,7 @@ void gatherPressure()
 
 void calculatePressure()
 {
-  pascals = pascalRunningTotal / float(pascalRunningTotal);
+  pascals = pascalRunningTotal / float(pascalReads);
   pascalReads = 0;
   pascalRunningTotal = 0.0;
 }
