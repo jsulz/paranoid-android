@@ -166,12 +166,12 @@ void publishInfo()
   writer.beginObject();
   writer.name("published").value((int)Time.now());
   writer.name("humidity").value(humidity);
-  writer.name("air-temperature").value(airTemp);
-  writer.name("atmospheric-pressure").value(pascals);
-  writer.name("wind-speed").value(curr_wind_speed);
-  writer.name("wind-direction").value(windDirection);
-  writer.name("soil-temperature").value(soilTemp);
-  writer.name("soil-moisture").value(soilMoisture);
+  writer.name("airtemp").value(airTemp);
+  writer.name("pressure").value(pascals);
+  writer.name("windspeed").value(curr_wind_speed);
+  writer.name("winddirection").value(windDirection);
+  writer.name("soiltemp").value(soilTemp);
+  writer.name("soilmoisture").value(soilMoisture);
   writer.name("rainfall").value(rain);
   writer.endObject();
   writer.buffer()[std::min(writer.bufferSize(), writer.dataSize())] = 0;
