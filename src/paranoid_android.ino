@@ -87,7 +87,9 @@ int debug_publish_window = 12000;
 int prod_publish_window = 60000;
 byte minutes;
 long lastPrint = 0;
-
+#define ONE_DAY_MILLIS (24 * 60 * 60 * 1000)
+unsigned long lastSync = millis();
+time32_t now();
 //--------------------Setup the sensors -----------------------
 void setup()
 {
@@ -119,6 +121,13 @@ void setup()
 void loop()
 {
 
+  if (millis() - lastSync > ONE_DAY_MILLIS)
+  {
+    // Request time synchronization from the Particle Device Cloud
+    Particle.syncTime();
+    lastSync = millis();
+  }
+
   // This math looks at the current time vs the last time a publish happened
   if (millis() - lastPrint > debug_publish_window) // Publishes every 12000 milliseconds, or 12 seconds
   {
@@ -134,10 +143,11 @@ void loop()
     // Record when you published
     lastPrint = millis();
 
-    // Use the printInfo() function to print data out to Serial - for debugging only
-    // printInfo();
-
+    // Publish to Particle
     publishInfo();
+
+    // Use the printInfo() function to print data out to Serial - for debugging only
+    printInfo();
   }
   // Otherwise, get all of the weather values that we keep running averages for
   else
@@ -154,6 +164,7 @@ void publishInfo()
   JSONBufferWriter writer(buffer, sizeof(buffer));
 
   writer.beginObject();
+  writer.name("published").value((int)Time.now());
   writer.name("humidity").value(humidity);
   writer.name("air-temperature").value(airTemp);
   writer.name("atmospheric-pressure").value(pascals);
@@ -171,6 +182,9 @@ void publishInfo()
 void printInfo()
 {
   // This function prints the weather data out to the default Serial Port
+  Serial.print("Time:");
+  Serial.print((int)Time.now());
+  Serial.print(" ");
 
   Serial.print("Temp:");
   Serial.print(airTemp);
