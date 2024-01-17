@@ -84,7 +84,7 @@ float pascalRunningTotal = 0.0;
 
 // Publish/time helpers
 int debug_publish_window = 12000;
-int prod_publish_window = 60000;
+int prod_publish_window = 600000;
 byte minutes;
 long lastPrint = 0;
 #define ONE_DAY_MILLIS (24 * 60 * 60 * 1000)
@@ -129,7 +129,7 @@ void loop()
   }
 
   // This math looks at the current time vs the last time a publish happened
-  if (millis() - lastPrint > debug_publish_window) // Publishes every 12000 milliseconds, or 12 seconds
+  if (millis() - lastPrint > prod_publish_window) // Publishes every 12000 milliseconds, or 12 seconds
   {
     airTemp = calculateAirTemp();
     humidity = calculateHumidity();
