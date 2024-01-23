@@ -19,6 +19,7 @@ Helping libraries
 #include "SparkFun_Photon_Weather_Shield_Library.h"
 #include "OneWire.h"
 #include <Wire.h> //I2C needed for sensors
+#include "SparkFunMAX17043.h"
 
 /**************************
 Big board settings
@@ -115,6 +116,11 @@ void setup()
   attachInterrupt(RAINPIN, rainIRQ, FALLING);
   attachInterrupt(WSPEED, wspeedIRQ, FALLING);
   interrupts();
+
+  // LIPO battery reading steps
+  lipo.begin();
+  lipo.quickStart();
+  lipo.setThreshold(10);
 }
 
 //----------------Main Program Loop and publish-------------------
@@ -173,6 +179,7 @@ void publishInfo()
   writer.name("soiltemp").value(soilTemp);
   writer.name("soilmoisture").value(soilMoisture);
   writer.name("rainfall").value(rain);
+  writer.name("battery").value(lipo.getSOC());
   writer.endObject();
   writer.buffer()[std::min(writer.bufferSize(), writer.dataSize())] = 0;
   Particle.publish("add-weather", buffer, PRIVATE);
