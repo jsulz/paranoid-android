@@ -161,7 +161,7 @@ void loop()
     updateWeatherValues();
   }
   // Add a bit of a gathering delay to help smooth out weird gusts, etc
-  delay(100);
+  delay(1000);
 }
 
 void publishInfo()
@@ -179,7 +179,7 @@ void publishInfo()
   writer.name("soiltemp").value(soilTemp);
   writer.name("soilmoisture").value(soilMoisture);
   writer.name("rainfall").value(rain);
-  writer.name("battery").value(lipo.getSOC());
+  writer.name("batterycharge").value(lipo.getSOC());
   writer.endObject();
   writer.buffer()[std::min(writer.bufferSize(), writer.dataSize())] = 0;
   Particle.publish("add-weather", buffer, PRIVATE);
