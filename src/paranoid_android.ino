@@ -153,7 +153,7 @@ void loop()
     publishInfo();
 
     // Use the printInfo() function to print data out to Serial - for debugging only
-    printInfo();
+    // printInfo();
   }
   // Otherwise, get all of the weather values that we keep running averages for
   else
