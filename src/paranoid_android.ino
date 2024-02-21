@@ -135,8 +135,10 @@ void loop()
   }
 
   // This math looks at the current time vs the last time a publish happened
-  if (millis() - lastPrint > prod_publish_window) // Publishes every 12000 milliseconds, or 12 seconds
+  // When this is out in the wild that happens every 10 minutes
+  if (millis() - lastPrint > prod_publish_window) 
   {
+    updateWeatherValues();
     airTemp = calculateAirTemp();
     humidity = calculateHumidity();
     pascals = calculatePressure();
@@ -155,12 +157,7 @@ void loop()
     // Use the printInfo() function to print data out to Serial - for debugging only
     // printInfo();
   }
-  // Otherwise, get all of the weather values that we keep running averages for
-  else
-  {
-    updateWeatherValues();
-  }
-  // Add a bit of a gathering delay to help smooth out weird gusts, etc
+  // Add a bit of a gathering delay to help smooth out weird gusts for wind or bumps that cause the rain catch to jitter
   delay(1000);
 }
 
