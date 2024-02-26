@@ -85,7 +85,7 @@ float pascalRunningTotal = 0.0;
 
 // Publish/time helpers
 int debug_publish_window = 12000;
-int prod_publish_window = 600000;
+int prod_publish_window = 1800000;
 byte minutes;
 long lastPrint = 0;
 #define ONE_DAY_MILLIS (24 * 60 * 60 * 1000)
@@ -158,7 +158,7 @@ void loop()
     // printInfo();
   }
   // Add a bit of a gathering delay to help smooth out weird gusts for wind or bumps that cause the rain catch to jitter
-  delay(1000);
+  delay(200);
 }
 
 void publishInfo()
