@@ -157,6 +157,13 @@ void loop()
     // Use the printInfo() function to print data out to Serial - for debugging only
     // printInfo();
   }
+
+  // @todo - turn off wifi between publishing to save battery
+  // See: https://docs.particle.io/reference/device-os/api/wifi/wifi/
+  // https://community.particle.io/t/onewire-bus-functionality-quits-working-when-photon-wifi-is-turned-off/54797/8 
+  // https://community.particle.io/t/deactivating-wifi-on-photon/40283
+
+
   // Add a bit of a gathering delay to help smooth out weird gusts for wind or bumps that cause the rain catch to jitter
   delay(200);
 }
